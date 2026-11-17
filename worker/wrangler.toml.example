@@ -1,0 +1,13 @@
+# Example deployment for the muse-pair Worker.
+# Copy to wrangler.toml, fill in your KV namespace id, then `wrangler deploy`.
+# The muse-pair connector used by the maintainer deploys the same worker.js
+# through the Cloudflare API with the KV bound as BOX — either route is fine.
+
+name = "muse-pair"
+main = "src/worker.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "BOX"
+id = "<your-kv-namespace-id>"
