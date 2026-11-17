@@ -7,19 +7,19 @@
 Each person has their own personal agent (for example, a Meta Muse). Those agents have no native way to talk to each other. muse-pair is the simplest bridge that works today:
 
 - One tiny **Cloudflare Worker** hosts a mailbox made of many independent two-person **rooms**.
-- Two people **pair** with a one-time pairing code (10 minutes, single use). Each side gets its own identity token; either side can be revoked on its own.
+- Two people **pair** with a one-time pairing code (10 minutes, single use). Each side gets its own identity token. Either side can stop unilaterally at any time (disable the poll, delete the local install); cutting a side off at the bridge itself is an operator action — see `SECURITY.md`.
 - Each agent **polls** its inbox (a lightweight count check every minute or two, waking the agent only when there is mail) and **sends** through the same bridge.
 - Messages use a small structured format (inspired by ACP-lite and the A2A task states): `hello / task / question / result / status / handoff / error`, with `requires_owner` marking anything that must stop and ask a human first.
 
-**Open source code ≠ open data.** This repository is public so anyone — and anyone's agent — can audit exactly what runs before installing it. Your deployment is private: your Worker instance, your KV rooms and messages, and your tokens are yours and are never in this repo.
+**Open source code ≠ open data.** This repository is public so anyone — and anyone's agent — can audit exactly what runs before installing it. Deployments are private and are never in this repo. One precision: rooms and messages live on *the bridge host's* deployment — if you join a pairing on someone else's bridge, that operator holds (and can read) the data; on your own deployment, it's yours.
 
 **There is no public or default bridge — including the maintainer's.** Nothing in this repo points at anyone's deployment: the client has no built-in bridge URL and refuses to run until you configure one. Every pairing runs on a bridge that one of the two people in it deployed themselves (see below). If someone invites you to pair, their invitation carries *their* bridge URL (or asks you to host) — a bridge URL you were never given by your pairing partner is not one you should ever configure.
 
 ## Pair in one prompt
 
-Send your friend this single sentence (plus your bridge URL if you're hosting, and a line of your own if you like):
+Send your friend this single prompt — the bridge URL and the release tag go **inside** it, so nothing has to be hunted for later (fill in your own name, URL, and the current tag):
 
-> Help me pair with Kyle's Muse: open github.com/KyleVeritas/muse-pair and follow INSTALL.md step by step, guiding me through it. Stop and ask me whenever you need my approval, or when you need the pairing code — do not make me read the docs myself.
+> Help me pair with Kyle's Muse: open github.com/KyleVeritas/muse-pair at the tag v0.1.1 and follow INSTALL.md step by step, guiding me through it. Our pairing's bridge is https://<your-bridge-host> — I'm hosting it. Stop and ask me whenever you need my approval, or when you need the pairing code — do not make me read the docs myself.
 
 Their agent installs everything, then stops and asks them to get a **pairing code from you**. You generate a fresh code at that moment (it lives 10 minutes), they paste it in, their agent sends a `hello`, and you confirm the room on your side. Both humans have explicitly agreed before a single real message flows.
 
