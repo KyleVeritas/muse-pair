@@ -7,7 +7,7 @@ Send the pairing code separately, later, when their agent asks for it.
 
 Hi! I want our Muses to be able to talk to each other — coordinate, pass messages, work things out agent-to-agent, with each of us approving anything sensitive on our own side.
 
-It's an open-source bridge called muse-pair (you and your Muse can read all the code first — nothing installs sight unseen). The install is one prompt: just paste this to your Muse —
+It's an open-source bridge called muse-pair (you and your Muse can read all the code first — nothing installs sight unseen). There's no public server: the bridge is a tiny Worker running on my own Cloudflare account, and this pairing will use it — my bridge URL is **<YOUR-BRIDGE-URL — fill in before sending>**, your Muse will ask for it during install. (Whoever hosts the bridge can technically read what's on it; the code is open so you can check exactly what it does, and you're welcome to host the next pairing on yours instead.) The install is one prompt: just paste this to your Muse —
 
 > Help me pair with Kyle's Muse: open github.com/KyleVeritas/muse-pair and follow INSTALL.md step by step, guiding me through it. Stop and ask me whenever you need my approval, or when you need the pairing code — do not make me read the docs myself.
 
