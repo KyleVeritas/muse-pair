@@ -19,7 +19,7 @@ node test/e2e-server.mjs $PORT1 > "$TMP/srv1.log" 2>&1 &
 SRV1=$!
 node test/e2e-server.mjs $PORT2 > "$TMP/srv2.log" 2>&1 &
 SRV2=$!
-cleanup() { kill $SRV1 $SRV2 2>/dev/null; rm -rf "$TMP" /tmp/mp_pwn; }
+cleanup() { kill $SRV1 $SRV2 2>/dev/null; rm -rf "$TMP" /tmp/mp_pwn /tmp/mp_pwn2; }
 trap cleanup EXIT
 wait_health() { # port
   for i in $(seq 1 40); do
@@ -131,10 +131,62 @@ OUT=$(MUSE_PAIR_HOME=$HD $PAIR health 2>/dev/null)
 echo "$OUT" | grep -q 'bridge_must_be_https'; check "#5 non-https bridge rejected" $?
 echo "{\"base\": \"http://127.0.0.1:$PORT1\", \"installed_ref\": \"test\"}" > "$HD/config.json"
 
-# --- #5 migration: token without binding binds on first use ---
+# --- #5 migration: pre-tag install (no installed_ref) binds on first use ---
+echo "{\"base\": \"http://127.0.0.1:$PORT1\"}" > "$HD/config.json"
 rm -f "$HD/token_base"
 MUSE_PAIR_HOME=$HD $PAIR rooms > /dev/null; check "migration: rooms works without binding file" $?
 grep -q "127.0.0.1:$PORT1" "$HD/token_base"; check "migration: binding written for current bridge" $?
+# --- R2-2: tagged install (installed_ref present) fails closed without binding ---
+echo "{\"base\": \"http://127.0.0.1:$PORT1\", \"installed_ref\": \"test\"}" > "$HD/config.json"
+rm -f "$HD/token_base"
+OUT=$(MUSE_PAIR_HOME=$HD $PAIR rooms 2>/dev/null)
+echo "$OUT" | grep -q 'token_binding_missing'; check "R2-2 tagged install without binding fails closed" $?
+# restore a working binding for the remaining tests
+MUSE_PAIR_HOME=$HD $PAIR health > /dev/null
+python3 -c "open('$HD/token_base','w').write('http://127.0.0.1:$PORT1')"
+MUSE_PAIR_HOME=$HD $PAIR rooms > /dev/null; check "binding restored, rooms works" $?
+
+# --- R2-9: bridge 2 never received an Authorization header ---
+AUTH2=$(grep -c "auth=1" "$TMP/srv2.log" || true)
+[ "$AUTH2" = "0" ]; check "R2-9 second bridge received no Authorization" $?
+
+# --- R2-3: http://localhost.<evil> is not the localhost exception ---
+echo "{\"base\": \"http://localhost.evil.example\", \"installed_ref\": \"test\"}" > "$HD/config.json"
+OUT=$(MUSE_PAIR_HOME=$HD $PAIR health 2>/dev/null)
+echo "$OUT" | grep -q 'bridge_must_be_https'; check "R2-3 localhost.<evil> rejected" $?
+echo "{\"base\": \"http://127.0.0.1:$PORT1\", \"installed_ref\": \"test\"}" > "$HD/config.json"
+
+# --- #20/R2-1: a line that is exactly EOF inside the text is inert via --text-file ---
+rm -f /tmp/mp_pwn2
+printf 'first line\nEOF\ntouch /tmp/mp_pwn2\nlast line $HOME `id`' > "$TMP/evil.txt"
+MUSE_PAIR_HOME=$HC $PAIR send --room "$ROOM" --type task --text-file "$TMP/evil.txt" > /dev/null
+check "#20 send via --text-file exits 0" $?
+[ ! -e /tmp/mp_pwn2 ]; check "#20 EOF-line payload did not execute" $?
+GOT=$(MUSE_PAIR_HOME=$HD $PAIR inbox | python3 -c "import sys,json; d=json.load(sys.stdin); print([m['text'] for r in d['rooms'] for m in r['messages'] if m['type']=='task'][-1])")
+WANT=$(cat "$TMP/evil.txt")
+[ "$GOT" = "$WANT" ]; check "#20 EOF-line text byte-identical" $?
+MUSE_PAIR_HOME=$HD $PAIR inbox --ack > /dev/null
+
+# --- #20 fallback: unique-delimiter heredoc also carries an EOF line safely ---
+MUSE_PAIR_HOME=$HC $PAIR send --room "$ROOM" --type status --stdin > /dev/null <<'MP_EOF_TEST9'
+status text
+EOF
+more text
+MP_EOF_TEST9
+check "#20 unique-delimiter heredoc exits 0" $?
+GOT=$(MUSE_PAIR_HOME=$HD $PAIR inbox | python3 -c "import sys,json; d=json.load(sys.stdin); print([m['text'] for r in d['rooms'] for m in r['messages'] if m['type']=='status'][-1])")
+[ "$GOT" = "status text
+EOF
+more text" ]; check "#20 unique-delimiter text intact incl. EOF line" $?
+MUSE_PAIR_HOME=$HD $PAIR inbox --ack > /dev/null
+
+# --- R2-8: --text-file may not read from inside the muse-pair home ---
+OUT=$(MUSE_PAIR_HOME=$HC $PAIR send --room "$ROOM" --type task --text-file "$HC/token" 2>/dev/null)
+echo "$OUT" | grep -q 'text_file_is_private'; check "R2-8 token file refused as message text" $?
+
+# --- R2-4: ack --ids with a foreign id caches nothing and warns ---
+OUT=$(MUSE_PAIR_HOME=$HD $PAIR ack --room "$ROOM" --ids m_bogus_foreign 2>/dev/null)
+echo "$OUT" | grep -q '"warning"' && ! echo "$OUT" | grep -q 'acked_ids'; check "R2-4 foreign ack id warns, caches nothing" $?
 
 # --- #11: lone surrogate from a peer does not crash inbox ---
 TOK_B=$(cat "$HD/token")
