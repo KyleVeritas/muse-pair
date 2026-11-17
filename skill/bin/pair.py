@@ -27,7 +27,12 @@ import time
 import urllib.error
 import urllib.request
 
-DEFAULT_BASE = os.environ.get("MUSE_PAIR_BASE", "https://pair.dreamsketch.ai")
+# There is deliberately NO default bridge. Every pairing runs on a bridge
+# that one of the two people deployed themselves; the bridge URL is set
+# per-install in ~/.muse-pair/config.json (or the MUSE_PAIR_BASE env var).
+# Shipping a default would silently route strangers' pairings — and their
+# identity tokens — through someone else's Worker.
+ENV_BASE = os.environ.get("MUSE_PAIR_BASE")
 HOME = os.path.expanduser(os.environ.get("MUSE_PAIR_HOME", "~/.muse-pair"))
 TOKEN_FILE = os.path.join(HOME, "token")
 CONFIG_FILE = os.path.join(HOME, "config.json")
@@ -59,7 +64,7 @@ def visible_unread(inbox_payload: dict) -> int:
     return total
 
 
-def base_url() -> str:
+def base_url() -> str | None:
     try:
         with open(CONFIG_FILE) as fh:
             cfg = json.load(fh)
@@ -67,7 +72,19 @@ def base_url() -> str:
             return str(cfg["base"]).rstrip("/")
     except Exception:
         pass
-    return DEFAULT_BASE.rstrip("/")
+    if ENV_BASE:
+        return ENV_BASE.rstrip("/")
+    return None
+
+
+NO_BRIDGE = {
+    "error": "no_bridge_configured",
+    "detail": "No bridge URL is configured, and muse-pair has no default bridge by design. "
+              "Set the bridge for this pairing in ~/.muse-pair/config.json as "
+              "{\"base\": \"https://<bridge-host>\"} — the bridge is a Worker that one of the two "
+              "people in the pairing deployed themselves (see the repo's README self-host section).",
+    "_http_status": 0,
+}
 
 
 def read_token() -> str | None:
@@ -94,8 +111,11 @@ def call(method: str, path: str, body: dict | None = None, auth: bool = True) ->
     idempotent = method == "GET" or path.endswith("/ack") or path.endswith("/confirm")
     attempts = 2 if idempotent else 1
     last_exc = None
+    base = base_url()
+    if not base:
+        return dict(NO_BRIDGE)
     for attempt in range(attempts):
-        url = base_url() + path
+        url = base + path
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)
         # Cloudflare's edge drops some bare programmatic user-agents (error 1010 /
