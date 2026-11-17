@@ -6,6 +6,18 @@ The identity token is stored ONLY in a restricted local file
 (default ~/.muse-pair/token, mode 0600) and is never printed.
 Config (bridge URL) lives in ~/.muse-pair/config.json — no secrets in it.
 
+v0.1.1 launch hardening:
+- The token is BOUND to the bridge that issued it (~/.muse-pair/token_base).
+  It is never sent to a different bridge and never overwritten. v0.1 supports
+  one bridge per install; pairing on a second bridge needs a separate install.
+- Bridge URLs must be https (http allowed only for localhost testing).
+- Redirects are never followed (an Authorization header must never be
+  forwarded to a different origin by a 3xx).
+- Message text for `send` comes from --stdin or --text-file (never needs to
+  be typed onto a shell command line by the calling agent).
+- `inbox --ack` acks exactly the message ids that the last plain `inbox`
+  displayed, and only caches them locally after the server confirms.
+
 Usage:
   pair.py health
   pair.py create --name "Alice"                 # create a room + pairing code
@@ -13,19 +25,24 @@ Usage:
   pair.py regenerate --room <room_id>           # creator: fresh pairing code
   pair.py confirm --room <room_id>              # creator: activate the room
   pair.py rooms
-  pair.py inbox [--ack]                         # aggregated unread; --ack marks read
+  pair.py inbox [--ack]                         # aggregated unread; --ack marks the shown ids read
+  pair.py ack --room <room_id> --ids id1,id2    # ack explicit ids (checked)
   pair.py pending-count                         # {"unread": n} — for wake hooks
-  pair.py send --room <room_id> --type task --text "..." [--context-id X] [--reply-to ID] [--requires-owner]
+  pair.py send --room <room_id> --type task --stdin <<'EOF' ... EOF
+  pair.py send --room <room_id> --type task --text-file draft.txt
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
 import time
 import urllib.error
 import urllib.request
+
+VERSION = "0.1.1"
 
 # There is deliberately NO default bridge. Every pairing runs on a bridge
 # that one of the two people deployed themselves; the bridge URL is set
@@ -35,8 +52,27 @@ import urllib.request
 ENV_BASE = os.environ.get("MUSE_PAIR_BASE")
 HOME = os.path.expanduser(os.environ.get("MUSE_PAIR_HOME", "~/.muse-pair"))
 TOKEN_FILE = os.path.join(HOME, "token")
+BIND_FILE = os.path.join(HOME, "token_base")
 CONFIG_FILE = os.path.join(HOME, "config.json")
 ACKED_FILE = os.path.join(HOME, "acked.json")
+SHOWN_FILE = os.path.join(HOME, "shown.json")
+
+
+def _write_small(path: str, text: str) -> None:
+    os.makedirs(HOME, mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(text)
+    os.chmod(path, 0o600)
+
+
+def _read_small(path: str) -> str | None:
+    try:
+        with open(path) as fh:
+            t = fh.read().strip()
+        return t or None
+    except Exception:
+        return None
 
 
 def load_local_acked() -> set:
@@ -52,6 +88,24 @@ def save_local_acked(ids: set) -> None:
         os.makedirs(HOME, mode=0o700, exist_ok=True)
         with open(ACKED_FILE, "w") as fh:
             json.dump(sorted(ids)[-2000:], fh)
+    except Exception:
+        pass
+
+
+def load_shown() -> dict:
+    try:
+        with open(SHOWN_FILE) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_shown(shown: dict) -> None:
+    try:
+        os.makedirs(HOME, mode=0o700, exist_ok=True)
+        with open(SHOWN_FILE, "w") as fh:
+            json.dump(shown, fh)
     except Exception:
         pass
 
@@ -88,20 +142,33 @@ NO_BRIDGE = {
 
 
 def read_token() -> str | None:
-    try:
-        with open(TOKEN_FILE) as fh:
-            t = fh.read().strip()
-        return t or None
-    except Exception:
+    return _read_small(TOKEN_FILE)
+
+
+def bound_base() -> str | None:
+    return _read_small(BIND_FILE)
+
+
+def save_token(token: str, base: str) -> None:
+    _write_small(TOKEN_FILE, token)
+    _write_small(BIND_FILE, base)
+
+
+def ensure_binding(base: str) -> None:
+    """Migration: a pre-0.1.1 install has a token but no binding file.
+    Bind the existing token to the bridge it is currently used with."""
+    if read_token() and not bound_base():
+        _write_small(BIND_FILE, base)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # Never follow redirects: an Authorization header must not be forwarded
+    # to another origin, and a redirected POST silently degrades to a GET.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
-def save_token(token: str) -> None:
-    os.makedirs(HOME, mode=0o700, exist_ok=True)
-    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        fh.write(token)
-    os.chmod(TOKEN_FILE, 0o600)
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 def call(method: str, path: str, body: dict | None = None, auth: bool = True) -> dict:
@@ -114,6 +181,21 @@ def call(method: str, path: str, body: dict | None = None, auth: bool = True) ->
     base = base_url()
     if not base:
         return dict(NO_BRIDGE)
+    if not (base.startswith("https://") or base.startswith("http://localhost")
+            or base.startswith("http://127.0.0.1")):
+        return {"error": "bridge_must_be_https",
+                "detail": f"Refusing non-https bridge URL: {base}. Fix ~/.muse-pair/config.json.",
+                "_http_status": 0}
+    if auth and read_token():
+        ensure_binding(base)
+        bound = bound_base()
+        if bound and bound != base:
+            return {"error": "token_bound_to_other_bridge",
+                    "detail": "This install's identity token belongs to a different bridge "
+                              f"({bound}) and is never sent elsewhere. v0.1 supports one bridge "
+                              "per install — pairing on another bridge needs a separate install "
+                              "(separate MUSE_PAIR_HOME). Stop and tell your human.",
+                    "_http_status": 0}
     for attempt in range(attempts):
         url = base + path
         data = json.dumps(body).encode() if body is not None else None
@@ -128,7 +210,7 @@ def call(method: str, path: str, body: dict | None = None, auth: bool = True) ->
             if tok:
                 req.add_header("Authorization", "Bearer " + tok)
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with _OPENER.open(req, timeout=30) as resp:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as exc:
             try:
@@ -153,8 +235,30 @@ def show(out: dict) -> int:
     return 1 if is_err(out) else 0
 
 
+def ack_ids(room_id: str, ids: list[str]) -> dict:
+    """Ack exactly `ids` in one room. Returns the server payload; on success
+    the ids are added to the local acked cache, on failure nothing is cached."""
+    if not ids:
+        return {"ok": True, "acked": 0}
+    out = call("POST", f"/rooms/{room_id}/ack", {"message_ids": ids})
+    if is_err(out):
+        return out
+    acked = load_local_acked()
+    acked.update(ids)
+    save_local_acked(acked)
+    out["acked_ids"] = ids
+    return out
+
+
 def main() -> int:
+    # A peer can put characters in a message (e.g. a lone surrogate) that the
+    # default stdout error handler would crash on. Backslash-replace keeps
+    # output alive and keeps ordinary text (incl. Chinese) byte-readable.
+    with contextlib.suppress(Exception):
+        sys.stdout.reconfigure(errors="backslashreplace")
+
     ap = argparse.ArgumentParser(prog="pair.py")
+    ap.add_argument("--version", action="version", version=f"muse-pair pair.py {VERSION}")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("health")
     p = sub.add_parser("create"); p.add_argument("--name", required=True)
@@ -163,11 +267,14 @@ def main() -> int:
     p = sub.add_parser("confirm"); p.add_argument("--room", required=True)
     sub.add_parser("rooms")
     p = sub.add_parser("inbox"); p.add_argument("--ack", action="store_true")
+    p = sub.add_parser("ack"); p.add_argument("--room", required=True); p.add_argument("--ids", required=True)
     sub.add_parser("pending-count")
     p = sub.add_parser("send")
     p.add_argument("--room", required=True)
     p.add_argument("--type", required=True, choices=["hello", "task", "question", "result", "status", "handoff", "error"])
-    p.add_argument("--text", required=True)
+    p.add_argument("--text", default=None, help="inline text (discouraged for agents; prefer --stdin)")
+    p.add_argument("--stdin", action="store_true", help="read message text from stdin")
+    p.add_argument("--text-file", default=None, help="read message text from a file")
     p.add_argument("--context-id", default=None)
     p.add_argument("--reply-to", default=None)
     p.add_argument("--requires-owner", action="store_true")
@@ -177,6 +284,10 @@ def main() -> int:
         return show(call("GET", "/health", auth=False))
 
     if args.cmd in ("create", "join"):
+        # Never overwrite an existing identity. Reusing the identity on the
+        # SAME bridge is the server's job (it returns no new token then);
+        # a token in the response while we already hold one is refused.
+        had_token = read_token() is not None
         body = {"name": args.name}
         path = "/pair/create"
         if args.cmd == "join":
@@ -185,7 +296,14 @@ def main() -> int:
         out = call("POST", path, body)
         token = out.pop("identity_token", None)  # never printed
         if token:
-            save_token(token)
+            if had_token:
+                out["error"] = "identity_not_overwritten"
+                out["detail"] = ("The bridge issued a new identity token but this install already "
+                                 "has one; the existing token was kept and the new one discarded. "
+                                 "Stop and tell your human — this install may be misconfigured.")
+                out["_http_status"] = 0
+                return show(out)
+            save_token(token, base_url() or "")
             out["token_saved"] = True
         return show(out)
 
@@ -211,32 +329,72 @@ def main() -> int:
             return show(out)
         print(json.dumps({"unread": visible_unread(out)}))
         return 0
+    if args.cmd == "ack":
+        ids = [i.strip() for i in args.ids.split(",") if i.strip()]
+        return show(ack_ids(args.room, ids))
     if args.cmd == "inbox":
+        if args.ack:
+            # Ack EXACTLY the ids the last plain `inbox` displayed. Mail that
+            # arrived after that display is not in shown.json and stays unread.
+            shown = load_shown()
+            if not shown:
+                return show({"ok": True, "acked": 0,
+                             "note": "nothing displayed since last ack — nothing to ack"})
+            failures = {}
+            total = 0
+            remaining = {}
+            for room_id, ids in shown.items():
+                res = ack_ids(room_id, list(ids))
+                if is_err(res):
+                    failures[room_id] = res.get("error", "ack failed")
+                    remaining[room_id] = list(ids)
+                else:
+                    total += len(ids)
+            save_shown(remaining)
+            if failures:
+                return show({"error": "ack_failed", "failures": failures,
+                             "detail": "Some acks were NOT confirmed by the bridge; those messages "
+                                       "remain unread and will be shown again. Nothing was hidden locally.",
+                             "_http_status": 0})
+            return show({"ok": True, "acked": total})
         out = call("GET", "/me/inbox")
         if is_err(out):
             return show(out)
-        if args.ack:
-            acked_ids = load_local_acked()
-            for room in out.get("rooms", []):
-                ids = [m["id"] for m in room.get("messages", [])]
-                if ids:
-                    call("POST", f"/rooms/{room['room_id']}/ack", {"message_ids": ids})
-                    acked_ids.update(ids)
-            save_local_acked(acked_ids)
-            out["acked"] = True
-        else:
-            # Hide messages this client already acked locally — the server's
-            # ack write may still be propagating (KV eventual consistency).
-            seen = load_local_acked()
-            total = 0
-            for room in out.get("rooms", []):
-                room["messages"] = [m for m in room.get("messages", []) if m["id"] not in seen]
-                room["unread"] = len(room["messages"])
-                total += room["unread"]
-            out["unread"] = total
+        # Hide messages this client already acked locally — the server's
+        # ack write may still be propagating (KV eventual consistency).
+        seen = load_local_acked()
+        total = 0
+        shown = {}
+        for room in out.get("rooms", []):
+            room["messages"] = [m for m in room.get("messages", []) if m["id"] not in seen]
+            room["unread"] = len(room["messages"])
+            total += room["unread"]
+            if room["messages"]:
+                shown[room["room_id"]] = [m["id"] for m in room["messages"]]
+        out["unread"] = total
+        save_shown(shown)
         return show(out)
     if args.cmd == "send":
-        body = {"type": args.type, "text": args.text, "requires_owner": bool(args.requires_owner)}
+        sources = sum(1 for s in (args.text is not None, args.stdin, args.text_file is not None) if s)
+        if sources != 1:
+            return show({"error": "text_source_required",
+                         "detail": "Provide message text via exactly one of --stdin (preferred), "
+                                   "--text-file, or --text. Agents: always use --stdin with a "
+                                   "quoted heredoc so message text never sits on a command line.",
+                         "_http_status": 0})
+        if args.stdin:
+            text = sys.stdin.read()
+            if text.endswith("\n"):
+                text = text[:-1]
+        elif args.text_file:
+            try:
+                with open(args.text_file, encoding="utf-8") as fh:
+                    text = fh.read()
+            except Exception as exc:
+                return show({"error": "text_file_unreadable", "detail": str(exc), "_http_status": 0})
+        else:
+            text = args.text
+        body = {"type": args.type, "text": text, "requires_owner": bool(args.requires_owner)}
         if args.context_id:
             body["context_id"] = args.context_id
         if args.reply_to:
