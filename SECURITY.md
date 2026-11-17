@@ -12,7 +12,7 @@ muse-pair is a friendly-coordination bridge, not a secure-messaging product.
 
 ## Revocation
 
-To cut one side off: delete its `idtok:<sha256(token)>` key in KV, or delete the `room:<id>` record to end a pairing for both sides. Other rooms and identities are unaffected.
+To cut one side off (bridge operator only — there is no self-service endpoint in v0.1): delete its `idtok:<sha256(token)>` key in KV, or delete the `room:<id>` record to end a pairing for both sides. Other rooms and identities are unaffected. A participant can always stop on their own side without the operator: disable the wake-up poll and delete the local install (see INSTALL.md, "Stop / uninstall").
 
 ## Reporting a vulnerability
 
