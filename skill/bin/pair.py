@@ -27,7 +27,7 @@ import time
 import urllib.error
 import urllib.request
 
-DEFAULT_BASE = os.environ.get("MUSE_PAIR_BASE", "https://muse-pair.corion.workers.dev")
+DEFAULT_BASE = os.environ.get("MUSE_PAIR_BASE", "https://pair.dreamsketch.ai")
 HOME = os.path.expanduser(os.environ.get("MUSE_PAIR_HOME", "~/.muse-pair"))
 TOKEN_FILE = os.path.join(HOME, "token")
 CONFIG_FILE = os.path.join(HOME, "config.json")
