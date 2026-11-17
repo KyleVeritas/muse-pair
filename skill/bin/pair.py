@@ -28,7 +28,6 @@ Usage:
   pair.py inbox [--ack]                         # aggregated unread; --ack marks the shown ids read
   pair.py ack --room <room_id> --ids id1,id2    # ack explicit ids (checked)
   pair.py pending-count                         # {"unread": n} — for wake hooks
-  pair.py send --room <room_id> --type task --stdin <<'EOF' ... EOF
   pair.py send --room <room_id> --type task --text-file draft.txt
 """
 from __future__ import annotations
@@ -40,6 +39,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 VERSION = "0.1.1"
@@ -154,11 +154,31 @@ def save_token(token: str, base: str) -> None:
     _write_small(BIND_FILE, base)
 
 
-def ensure_binding(base: str) -> None:
+def _config() -> dict:
+    try:
+        with open(CONFIG_FILE) as fh:
+            cfg = json.load(fh)
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
+def ensure_binding(base: str) -> bool:
     """Migration: a pre-0.1.1 install has a token but no binding file.
-    Bind the existing token to the bridge it is currently used with."""
-    if read_token() and not bound_base():
-        _write_small(BIND_FILE, base)
+    Bind it to the current bridge — but ONLY for installs that predate the
+    binding era, identified by a config without `installed_ref` (every
+    install made from a tagged release records one). If a tagged install
+    has lost its binding file, fail closed instead of re-binding the token
+    to whatever bridge the config now names. Returns True when a binding
+    exists or was just written."""
+    if bound_base():
+        return True
+    if not read_token():
+        return True
+    if "installed_ref" in _config():
+        return False
+    _write_small(BIND_FILE, base)
+    return True
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -181,13 +201,20 @@ def call(method: str, path: str, body: dict | None = None, auth: bool = True) ->
     base = base_url()
     if not base:
         return dict(NO_BRIDGE)
-    if not (base.startswith("https://") or base.startswith("http://localhost")
-            or base.startswith("http://127.0.0.1")):
+    parsed = urllib.parse.urlparse(base)
+    local_http = parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1", "::1")
+    if not (parsed.scheme == "https" or local_http):
         return {"error": "bridge_must_be_https",
                 "detail": f"Refusing non-https bridge URL: {base}. Fix ~/.muse-pair/config.json.",
                 "_http_status": 0}
     if auth and read_token():
-        ensure_binding(base)
+        if not ensure_binding(base):
+            return {"error": "token_binding_missing",
+                    "detail": "This install's token has no bridge binding (the token_base file is "
+                              "gone) and tagged installs never re-bind automatically — re-binding "
+                              "could send the token to the wrong bridge. Stop and tell your human; "
+                              "do not delete or recreate files in ~/.muse-pair to work around this.",
+                    "_http_status": 0}
         bound = bound_base()
         if bound and bound != base:
             return {"error": "token_bound_to_other_bridge",
@@ -236,12 +263,18 @@ def show(out: dict) -> int:
 
 
 def ack_ids(room_id: str, ids: list[str]) -> dict:
-    """Ack exactly `ids` in one room. Returns the server payload; on success
-    the ids are added to the local acked cache, on failure nothing is cached."""
+    """Ack exactly `ids` in one room. The ids enter the local acked cache
+    ONLY when the server confirms it acked every one of them — a partial
+    ack (e.g. an id that belongs to another room) caches nothing, so no
+    message is ever hidden locally that the server still counts unread."""
     if not ids:
         return {"ok": True, "acked": 0}
     out = call("POST", f"/rooms/{room_id}/ack", {"message_ids": ids})
     if is_err(out):
+        return out
+    if out.get("acked") != len(ids):
+        out["warning"] = (f"server acked {out.get('acked')} of {len(ids)} ids; nothing was cached "
+                          "locally, so those messages will still show as unread")
         return out
     acked = load_local_acked()
     acked.update(ids)
@@ -372,21 +405,41 @@ def main() -> int:
             if room["messages"]:
                 shown[room["room_id"]] = [m["id"] for m in room["messages"]]
         out["unread"] = total
+        # Record the shown ids ONLY after the display actually completed.
+        # If the output was truncated or the pipe broke, nothing is recorded,
+        # so a later --ack can never ack mail the agent never saw.
+        try:
+            sys.stdout.write(json.dumps(out, ensure_ascii=False, indent=2) + "\n")
+            sys.stdout.flush()
+        except (BrokenPipeError, OSError):
+            return 1
         save_shown(shown)
-        return show(out)
+        return 0
     if args.cmd == "send":
         sources = sum(1 for s in (args.text is not None, args.stdin, args.text_file is not None) if s)
         if sources != 1:
             return show({"error": "text_source_required",
-                         "detail": "Provide message text via exactly one of --stdin (preferred), "
-                                   "--text-file, or --text. Agents: always use --stdin with a "
-                                   "quoted heredoc so message text never sits on a command line.",
+                         "detail": "Provide message text via exactly one of --text-file (preferred "
+                                   "for agents: write the draft with a file tool first), --stdin, or "
+                                   "--text. Message text must never sit on a shell command line or "
+                                   "inside a heredoc (see SKILL rule 6).",
                          "_http_status": 0})
         if args.stdin:
             text = sys.stdin.read()
             if text.endswith("\n"):
                 text = text[:-1]
         elif args.text_file:
+            # Never read message text from inside the muse-pair home: the
+            # token and config live there, and a token must never become a
+            # bridge message.
+            home_real = os.path.realpath(HOME)
+            file_real = os.path.realpath(args.text_file)
+            if file_real == home_real or file_real.startswith(home_real + os.sep):
+                return show({"error": "text_file_is_private",
+                             "detail": "Refusing to read message text from inside the muse-pair "
+                                       "home directory — the identity token lives there and must "
+                                       "never be sent as a message. Write drafts elsewhere.",
+                             "_http_status": 0})
             try:
                 with open(args.text_file, encoding="utf-8") as fh:
                     text = fh.read()
