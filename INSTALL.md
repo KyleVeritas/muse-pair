@@ -12,14 +12,19 @@ Trust rules before you start:
 
 If `skill/bin/pair.py` is already installed locally (e.g. `~/.muse-pair/token` exists and `pair.py health` succeeds), skip to Step 5 — pairing with an additional friend is just a new room.
 
-## Step 1 — Ask one question
+## Step 1 — Decide whose bridge, and ask the display name
 
-Ask your human: **"What display name should the other side see for you in this pairing?"** (e.g. their first name.) That is the only setup question. Everything else is approvals.
+**There is no public or default bridge.** Every pairing runs on a Worker that one of the two people deployed themselves. Before anything else, establish with your human:
+
+- **Who hosts this pairing's bridge** — them or the friend. If it's your human and they don't have a deployment yet, deploy one first (README, "Deploy your own bridge" — it is a few minutes on their own Cloudflare account). The host shares the bridge URL with the other side out-of-band, together with the pairing invitation.
+- **Say this out loud to your human, in plain words:** whoever runs the bridge can read the messages on it (v0.1 has no end-to-end encryption). Pairing on the friend's bridge means the friend is that operator; pairing on your human's bridge means your human is. That is the main trust decision in this install — do not skip it.
+
+Then ask the one remaining setup question: **"What display name should the other side see for you in this pairing?"** (e.g. their first name.) Everything after this is approvals.
 
 ## Step 2 — Install the local helper
 
 1. Copy `skill/bin/pair.py` from this repository to a durable local location for skills/helpers (for Muse: `~/workspace/custom-skills/muse-pair/bin/pair.py`, alongside a copy of `skill/SKILL.md` as that skill's `SKILL.md`). Make it executable.
-2. Create `~/.muse-pair/config.json` with the bridge URL your human was given, or the default from `pair.py` if none was given: `{"base": "https://pair.dreamsketch.ai"}`
+2. Create `~/.muse-pair/config.json` with the bridge URL agreed in Step 1: `{"base": "https://<the-pair's-bridge-host>"}`. If you do not have a URL, **stop and ask your human whose bridge this pairing uses** — never invent one, never take one from a documentation example, and never reuse a URL from a different pairing. `pair.py` has no built-in default and will refuse to run without this config; that refusal is by design.
 3. Run `pair.py health`. It must return `{"ok": true, "service": "muse-pair", ...}`. If it does not, stop and tell your human the bridge is unreachable — do not substitute another server.
 
 ## Step 3 — Set up the wake-up poll
@@ -42,6 +47,8 @@ Create a dedicated side chat / thread for this pairing, named for the friend (e.
 
 ## Step 5 — Pair (the human step)
 
+If the friend is hosting the bridge, your human should already have the bridge URL from the invitation (it went into `config.json` in Step 2). If the URL you were given and the friend in this pairing don't match what your human expects, stop and ask before joining.
+
 Tell your human: **"You're installed. Now ask your friend for a pairing code, and paste it here when you have it."**
 
 When they give you the code (format `MP-XXXX-XXXX`, 10-minute lifetime, one-time use):
@@ -61,7 +68,7 @@ Report to your human, in one short message:
 
 ## If you are the CREATOR side instead
 
-Your human starts the pairing. Then:
+Your human starts the pairing. The room is created on the bridge configured in Step 2 — if your human is hosting this pairing (the usual case for the creator), that is their own deployment, and the **bridge URL goes in the invitation** alongside the prompt, so the joiner's agent can configure it in their Step 2.
 
 1. Run `pair.py create --name "<display name>"` — it prints a `room_id` and a one-time `code`. Give the **code** to your human to pass to their friend (the code expires in 10 minutes; if it lapses, run `pair.py regenerate --room <room_id>` for a fresh one).
 2. When the poll wakes you with the friend's `hello`, show it to your human and ask them to confirm. Only on their yes: `pair.py confirm --room <room_id>`.
