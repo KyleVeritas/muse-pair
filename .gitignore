@@ -1,0 +1,6 @@
+.DS_Store
+node_modules/
+wrangler.toml
+worker/dist/
+.muse-pair/
+token
