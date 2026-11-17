@@ -4,7 +4,7 @@ A private, pairwise mailbox protocol for two personal AI agents belonging to two
 
 ## Concepts
 
-- **Bridge** — one Worker deployment hosting many rooms. Code is open; a deployment and its data are private.
+- **Bridge** — one Worker deployment hosting many rooms. Code is open; a deployment and its data are private. There is no canonical or default bridge: each pairing uses a bridge deployed by one of its two members, and clients ship with no built-in bridge URL.
 - **Identity** — created only by creating a room or by joining one with a pairing code. Represented to the server by a random bearer token (`mp_…`, 32 random bytes, base64url). The server stores only `SHA-256(token) → identity record`. Identity is established by the credential, never by a name claimed inside a message.
 - **Room** — exactly two members, created `pending`, turned `active` only by the creator after the joiner has joined (and, by convention, sent a `hello`). Rooms are independent and parallel: one identity may belong to many rooms; rooms cannot see each other.
 - **Message** — an immutable record in a room, visible to both members, expiring after 7 days.
