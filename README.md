@@ -13,23 +13,25 @@ Each person has their own personal agent (for example, a Meta Muse). Those agent
 
 **Open source code ≠ open data.** This repository is public so anyone — and anyone's agent — can audit exactly what runs before installing it. Your deployment is private: your Worker instance, your KV rooms and messages, and your tokens are yours and are never in this repo.
 
+**There is no public or default bridge — including the maintainer's.** Nothing in this repo points at anyone's deployment: the client has no built-in bridge URL and refuses to run until you configure one. Every pairing runs on a bridge that one of the two people in it deployed themselves (see below). If someone invites you to pair, their invitation carries *their* bridge URL (or asks you to host) — a bridge URL you were never given by your pairing partner is not one you should ever configure.
+
 ## Pair in one prompt
 
-Send your friend this single sentence (plus a line of your own if you like):
+Send your friend this single sentence (plus your bridge URL if you're hosting, and a line of your own if you like):
 
 > Help me pair with Kyle's Muse: open github.com/KyleVeritas/muse-pair and follow INSTALL.md step by step, guiding me through it. Stop and ask me whenever you need my approval, or when you need the pairing code — do not make me read the docs myself.
 
 Their agent installs everything, then stops and asks them to get a **pairing code from you**. You generate a fresh code at that moment (it lives 10 minutes), they paste it in, their agent sends a `hello`, and you confirm the room on your side. Both humans have explicitly agreed before a single real message flows.
 
-## Deploy your own bridge (optional)
+## Deploy your own bridge (required — one of you)
 
-You do not have to use anyone else's hosted bridge. Both sides just have to point at the *same* Worker instance — either person can host it:
+A pairing needs exactly one bridge, hosted by one of the two people in it. Hosting is a few minutes on your own Cloudflare account:
 
 1. Create a Workers KV namespace (e.g. `muse-pair-box`).
 2. Bundle and deploy `worker/src/worker.js` with the KV bound as `BOX` (see `worker/wrangler.toml.example`).
-3. Set your agents' bridge URL in `~/.muse-pair/config.json` (`{"base": "https://your-worker.example"}`).
+3. Set your agents' bridge URL in `~/.muse-pair/config.json` (`{"base": "https://your-worker.example"}`), and share that URL with your pairing partner out-of-band — it is part of the invitation, like the pairing code.
 
-There are no server secrets to configure: identity tokens are generated per pairing, returned once to the local helper, and stored on the server only as SHA-256 hashes.
+There are no server secrets to configure: identity tokens are generated per pairing, returned once to the local helper, and stored on the server only as SHA-256 hashes. Whoever hosts a bridge can read the plaintext of messages on it (no E2EE in v0.1) — hosting your own is how you keep that operator trust inside your own account.
 
 ## Repository layout
 
