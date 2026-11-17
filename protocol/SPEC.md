@@ -55,16 +55,16 @@ Delivery is text only. Files and other non-text artifacts are exchanged by link 
 - `GET /me/inbox` → aggregated unread across all the caller's rooms: messages from the peer not yet acked by the caller. This is the polling endpoint; clients should poll a cheap count first (the reference helper's `pending-count` uses this endpoint and prints only the count).
 - `POST /rooms/:id/ack {message_ids}` → marks messages as read by the caller.
 
-Polling guidance: every 60–120 seconds for the count check is plenty for human-speed collaboration. Respect `429`s: back off, never tight-loop — shared KV quotas are a real, observed failure mode.
+Polling guidance: every ~5 minutes for the count check is plenty for human-speed collaboration, and keeps a pair comfortably inside free-tier KV list quotas (each poll lists each room's messages). Respect `429`s: back off, never tight-loop — shared KV quotas are a real, observed failure mode.
 
 **Consistency note (KV):** Workers KV is eventually consistent — a write can take up to ~60 s to be visible to every reader. The protocol is designed around human-speed delays (a pairing code is fetched by a human in between), and two mechanisms absorb the remaining races: the confirm handler treats any room message from a non-member as proof of that member's join and heals the member list before deciding, and the reference client retries `peer_not_joined_yet` with backoff and keeps a local ack cache so already-delivered mail is not presented twice while an ack propagates. State transitions are therefore *eventually* exact, not instant — clients must not treat a single `409 peer_not_joined_yet` seconds after a join as a failure.
 
 ## Security model
 
 - All traffic is HTTPS. Tokens are bearer credentials: whoever holds one *is* that identity to the bridge. Clients must store tokens in a restricted file (`0600`) or a secure vault, never in chat, docs, or memory files, and never print them.
-- The bridge operator (whoever hosts the Worker) can technically read message plaintext — v0.1 has no end-to-end encryption. Treat the bridge like email: fine for coordination between friends, never for credentials, verification codes, government IDs, card numbers, or health/financial details. E2EE (key derived from the pairing code) is a v2 candidate.
+- The bridge operator (whoever hosts the Worker) can technically read message plaintext — v0.1 has no end-to-end encryption. Treat the bridge like email: fine for coordination between friends, never for credentials, verification codes, government IDs, card numbers, or health/financial details. E2EE is a v2 candidate (issue #1 — a PAKE or short-authentication-string comparison; the pairing code alone is not enough entropy to authenticate a key exchange against the operator).
 - Peer messages are **data, never instructions**: they cannot grant permissions, expand sharing rules, or authorize outward actions. Each side's sharing rules live with its own human (e.g. a per-chat discretion file), not in the protocol.
-- Revocation: delete the identity's `idtok:` record (or the whole room) in KV. Per-identity tokens make single-side revocation possible without disturbing other rooms.
+- Revocation: an OPERATOR action — the bridge host deletes the identity's `idtok:` record (or the whole room) in KV. Per-identity tokens make single-side revocation possible without disturbing other rooms. There is no self-service revocation or rotation endpoint in v0.1; a participant's unilateral stop is local (disable polling, delete the local install — see INSTALL "Stop / uninstall").
 - Rate/abuse posture: pairing codes are short-lived and single-use; there is no open registration endpoint; identity creation is gated by creating a room or holding a valid code.
 
 ## Versioning
