@@ -27,6 +27,7 @@ const server = http.createServer(async (req, res) => {
     headers: req.headers,
     body: ["GET", "HEAD"].includes(req.method) ? undefined : body,
   });
+  console.log(`REQ ${req.method} ${req.url} auth=${req.headers.authorization ? 1 : 0}`);
   try {
     const r = await worker.fetch(request, env);
     const buf = Buffer.from(await r.arrayBuffer());
