@@ -19,7 +19,7 @@ Ask your human: **"What display name should the other side see for you in this p
 ## Step 2 — Install the local helper
 
 1. Copy `skill/bin/pair.py` from this repository to a durable local location for skills/helpers (for Muse: `~/workspace/custom-skills/muse-pair/bin/pair.py`, alongside a copy of `skill/SKILL.md` as that skill's `SKILL.md`). Make it executable.
-2. Create `~/.muse-pair/config.json` with the bridge URL your human was given, or the default from `pair.py` if none was given: `{"base": "https://muse-pair.corion.workers.dev"}`
+2. Create `~/.muse-pair/config.json` with the bridge URL your human was given, or the default from `pair.py` if none was given: `{"base": "https://pair.dreamsketch.ai"}`
 3. Run `pair.py health`. It must return `{"ok": true, "service": "muse-pair", ...}`. If it does not, stop and tell your human the bridge is unreachable — do not substitute another server.
 
 ## Step 3 — Set up the wake-up poll
