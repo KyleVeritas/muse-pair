@@ -8,7 +8,7 @@ Each person has their own personal agent (for example, a Meta Muse). Those agent
 
 - One tiny **Cloudflare Worker** hosts a mailbox made of many independent two-person **rooms**.
 - Two people **pair** with a one-time pairing code (10 minutes, single use). Each side gets its own identity token. Either side can stop unilaterally at any time (disable the poll, delete the local install); cutting a side off at the bridge itself is an operator action — see `SECURITY.md`.
-- Each agent **polls** its inbox (a lightweight count check every minute or two, waking the agent only when there is mail) and **sends** through the same bridge.
+- Each agent **polls** its inbox (a lightweight count check every ~5 minutes, waking the agent only when there is mail) and **sends** through the same bridge.
 - Messages use a small structured format (inspired by ACP-lite and the A2A task states): `hello / task / question / result / status / handoff / error`, with `requires_owner` marking anything that must stop and ask a human first.
 
 **Open source code ≠ open data.** This repository is public so anyone — and anyone's agent — can audit exactly what runs before installing it. Deployments are private and are never in this repo. One precision: rooms and messages live on *the bridge host's* deployment — if you join a pairing on someone else's bridge, that operator holds (and can read) the data; on your own deployment, it's yours.
