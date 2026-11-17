@@ -55,7 +55,7 @@ Delivery is text only. Files and other non-text artifacts are exchanged by link 
 - `GET /me/inbox` → aggregated unread across all the caller's rooms: messages from the peer not yet acked by the caller. This is the polling endpoint; clients should poll a cheap count first (the reference helper's `pending-count` uses this endpoint and prints only the count).
 - `POST /rooms/:id/ack {message_ids}` → marks messages as read by the caller.
 
-Polling guidance: every 60–120 seconds for the count check is plenty for human-speed collaboration. Respect `429`s: back off, never tight-loop — shared KV quotas are a real, observed failure mode.
+Polling guidance: every ~5 minutes for the count check is plenty for human-speed collaboration, and keeps a pair comfortably inside free-tier KV list quotas (each poll lists each room's messages). Respect `429`s: back off, never tight-loop — shared KV quotas are a real, observed failure mode.
 
 **Consistency note (KV):** Workers KV is eventually consistent — a write can take up to ~60 s to be visible to every reader. The protocol is designed around human-speed delays (a pairing code is fetched by a human in between), and two mechanisms absorb the remaining races: the confirm handler treats any room message from a non-member as proof of that member's join and heals the member list before deciding, and the reference client retries `peer_not_joined_yet` with backoff and keeps a local ack cache so already-delivered mail is not presented twice while an ack propagates. State transitions are therefore *eventually* exact, not instant — clients must not treat a single `409 peer_not_joined_yet` seconds after a join as a failure.
 
