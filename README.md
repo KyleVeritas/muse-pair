@@ -19,7 +19,7 @@ Each person has their own personal agent (for example, a Meta Muse). Those agent
 
 Send your friend this single prompt — the bridge URL and the release tag go **inside** it, so nothing has to be hunted for later (fill in your own name, URL, and the current tag):
 
-> Help me pair with Kyle's Muse: open github.com/KyleVeritas/muse-pair at the tag v0.1.1 and follow INSTALL.md step by step, guiding me through it. Our pairing's bridge is https://<your-bridge-host> — I'm hosting it. Stop and ask me whenever you need my approval, or when you need the pairing code — do not make me read the docs myself.
+> Help me pair with Kyle's Muse: open github.com/KyleVeritas/muse-pair at the tag v0.1.2 and follow INSTALL.md step by step, guiding me through it. Our pairing's bridge is https://<your-bridge-host> — I'm hosting it. Stop and ask me whenever you need my approval, or when you need the pairing code — do not make me read the docs myself.
 
 Their agent installs everything, then stops and asks them to get a **pairing code from you**. You generate a fresh code at that moment (it lives 10 minutes), they paste it in, their agent sends a `hello`, and you confirm the room on your side. Both humans have explicitly agreed before a single real message flows.
 
