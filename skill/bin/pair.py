@@ -25,7 +25,9 @@ Usage:
   pair.py regenerate --room <room_id>           # creator: fresh pairing code
   pair.py confirm --room <room_id>              # creator: activate the room
   pair.py rooms
-  pair.py inbox [--ack]                         # aggregated unread; --ack marks the shown ids read
+  pair.py inbox [--ack] [--limit N]             # aggregated unread; --ack marks the shown ids read;
+                                                # --limit N shows only the oldest N (drain a big
+                                                # backlog in pages, --ack after each page)
   pair.py ack --room <room_id> --ids id1,id2    # ack explicit ids (checked)
   pair.py pending-count                         # {"unread": n} — for wake hooks
   pair.py send --room <room_id> --type task --text-file draft.txt
@@ -42,7 +44,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 # There is deliberately NO default bridge. Every pairing runs on a bridge
 # that one of the two people deployed themselves; the bridge URL is set
@@ -300,6 +302,8 @@ def main() -> int:
     p = sub.add_parser("confirm"); p.add_argument("--room", required=True)
     sub.add_parser("rooms")
     p = sub.add_parser("inbox"); p.add_argument("--ack", action="store_true")
+    p.add_argument("--limit", type=int, default=None,
+                   help="show only the oldest N unread messages (server page cap applies)")
     p = sub.add_parser("ack"); p.add_argument("--room", required=True); p.add_argument("--ids", required=True)
     sub.add_parser("pending-count")
     p = sub.add_parser("send")
@@ -390,7 +394,12 @@ def main() -> int:
                                        "remain unread and will be shown again. Nothing was hidden locally.",
                              "_http_status": 0})
             return show({"ok": True, "acked": total})
-        out = call("GET", "/me/inbox")
+        if args.limit is not None and args.limit < 1:
+            return show({"error": "limit_must_be_positive",
+                         "detail": "--limit must be a positive integer; omit it to fetch everything.",
+                         "_http_status": 0})
+        path = "/me/inbox" if args.limit is None else f"/me/inbox?limit={args.limit}"
+        out = call("GET", path)
         if is_err(out):
             return show(out)
         # Hide messages this client already acked locally — the server's
