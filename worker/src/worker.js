@@ -15,16 +15,19 @@
 //   POST /rooms/:id/regenerate-code                [auth: room creator]
 //   POST /rooms/:id/confirm                        [auth: room creator]
 //   GET  /me/rooms                                 [auth]
-//   GET  /me/inbox                                 [auth]  (aggregated unread)
+//   GET  /me/inbox                                 [auth]  (aggregated unread;
+//                                                  optional ?limit=N returns only the
+//                                                  oldest N, plus total_unread)
 //   POST /rooms/:id/send         {type, text, context_id?, reply_to?, requires_owner?}
 //   POST /rooms/:id/ack          {message_ids: []} [auth: room member]
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.2";
 const CODE_TTL_SECONDS = 600; // pairing code: 10 minutes, one-time use
 const MSG_TTL_SECONDS = 60 * 60 * 24 * 7; // messages: 7 days
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
 const MSG_TYPES = ["hello", "task", "question", "result", "status", "handoff", "error"];
 const MAX_TEXT = 20000;
+const INBOX_PAGE_CAP = 100; // max messages one ?limit= page may return
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -256,6 +259,21 @@ async function handleInbox(request, env) {
   const token = bearerOf(request);
   const me = await identityFromToken(env, token);
   if (!me) return json({ error: "unauthorized" }, 401);
+  // Optional pagination (v0.1.2): ?limit=N returns only the oldest N unread
+  // messages across the aggregated payload — rooms in the caller's room
+  // order, oldest first within each room — so a client whose harness
+  // truncates large responses can drain a backlog in small pages, acking
+  // each page before fetching the next. An absent or invalid limit returns
+  // everything, exactly as before; a valid limit also adds `total_unread`
+  // (the full unread count) to the response. Per-room `unread` always
+  // reports that room's full unread count, paged or not.
+  let limit = null;
+  const rawLimit = new URL(request.url).searchParams.get("limit");
+  if (rawLimit !== null && /^\d+$/.test(rawLimit.trim())) {
+    const n = Number.parseInt(rawLimit.trim(), 10);
+    if (n > 0) limit = Math.min(n, INBOX_PAGE_CAP);
+  }
+  let budget = limit; // null = unlimited
   const rooms = [];
   let unread = 0;
   for (const roomId of me.rooms) {
@@ -272,9 +290,16 @@ async function handleInbox(request, env) {
       const fromPeer = msgs.find((e) => e.msg.from !== me.id && e.msg.from_name);
       if (fromPeer) peerName = fromPeer.msg.from_name;
     }
-    rooms.push({ room_id: roomId, status: room.status, peer_name: peerName, unread: mine.length, messages: mine });
+    let page = mine;
+    if (budget !== null) {
+      page = mine.slice(0, budget);
+      budget -= page.length;
+    }
+    rooms.push({ room_id: roomId, status: room.status, peer_name: peerName, unread: mine.length, messages: page });
   }
-  return json({ identity_id: me.id, unread, rooms });
+  const out = { identity_id: me.id, unread, rooms };
+  if (limit !== null) out.total_unread = unread;
+  return json(out);
 }
 
 async function handleAck(request, env, roomId) {
