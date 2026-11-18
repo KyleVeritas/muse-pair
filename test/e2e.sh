@@ -37,7 +37,7 @@ export MUSE_PAIR_HOME=$HA
 
 # version
 V=$($PAIR --version)
-[ "$V" = "muse-pair pair.py 0.1.1" ]; check "--version reports 0.1.1" $?
+[ "$V" = "muse-pair pair.py 0.1.2" ]; check "--version reports 0.1.2" $?
 
 # --- full pairing flow ---
 CREATE=$(MUSE_PAIR_HOME=$HA $PAIR create --name "Kyle")
