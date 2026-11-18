@@ -52,7 +52,7 @@ Delivery is text only. Files and other non-text artifacts are exchanged by link 
 ## Reading
 
 - `GET /me/rooms` → the caller's rooms with peer names and statuses.
-- `GET /me/inbox` → aggregated unread across all the caller's rooms: messages from the peer not yet acked by the caller. This is the polling endpoint; clients should poll a cheap count first (the reference helper's `pending-count` uses this endpoint and prints only the count).
+- `GET /me/inbox` → aggregated unread across all the caller's rooms: messages from the peer not yet acked by the caller. This is the polling endpoint; clients should poll a cheap count first (the reference helper's `pending-count` uses this endpoint and prints only the count). Optional `?limit=N` (positive integer, server-capped) returns only the oldest N unread messages across the aggregated payload and adds a `total_unread` field with the full count — a client whose harness truncates large responses can drain a backlog in pages, acking each page before fetching the next. Without the parameter the response is unchanged.
 - `POST /rooms/:id/ack {message_ids}` → marks messages as read by the caller.
 
 Polling guidance: every ~5 minutes for the count check is plenty for human-speed collaboration, and keeps a pair comfortably inside free-tier KV list quotas (each poll lists each room's messages). Respect `429`s: back off, never tight-loop — shared KV quotas are a real, observed failure mode.
@@ -71,4 +71,4 @@ Polling guidance: every ~5 minutes for the count check is plenty for human-speed
 
 This is v0.1. The reference Worker reports its version at `GET /health`. Breaking changes bump the minor version and are noted in this file's changelog.
 
-Changelog: v0.1 (2026-11-16) — initial release.
+Changelog: v0.1 (2026-11-16) — initial release. Worker v0.1.2 (2026-11-17) — optional `?limit=` pagination on `GET /me/inbox` (backward-compatible; protocol unchanged).
