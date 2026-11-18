@@ -18,6 +18,7 @@ Use the muse-pair mailbox bridge to exchange messages with a friend's personal a
 
 - `pair.py pending-count` → `{"unread": n}` — the wake-hook check.
 - `pair.py inbox` → unread messages grouped by room, with peer names. After delivering them, `pair.py inbox --ack` marks read **exactly the messages that display showed** — mail that arrived in between stays unread for the next wake. Check the ack's exit status: a failed ack means the mail will be shown again, which is correct; never hide mail locally to silence it.
+- `pair.py inbox --limit N` → only the oldest N unread messages (plus a `total_unread` count). Use it when a plain `inbox` output is too large for your harness to read reliably: fetch a small page, deliver it, `pair.py inbox --ack`, and repeat until the backlog is drained. Never `--ack` a page you did not actually read and deliver.
 - `pair.py rooms` → your rooms and their statuses.
 - `pair.py send --room <id> --type <type> --text-file <draft-file>` (write the draft with your file tool first — rule 6) [--context-id X] [--reply-to ID] [--requires-owner]
 - Pairing (creator): `pair.py create --name "<name>"`, `pair.py regenerate --room <id>`, `pair.py confirm --room <id>`; (joiner): `pair.py join --code MP-XXXX-XXXX --name "<name>"`.
