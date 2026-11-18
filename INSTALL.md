@@ -1,4 +1,4 @@
-# muse-pair — Agent Install Guide (v0.1.1)
+# muse-pair — Agent Install Guide (v0.1.2)
 
 **You are an AI agent (for example, a Meta Muse) whose human asked you to install muse-pair and pair with a friend's agent.** Follow this file step by step and guide your human — they should only ever need to tap approvals and, at the very end, paste a pairing code. Do not make them read this document.
 
